@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RAGアプリ</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 0 20px;
+      color: #333;
+    }
+    h1 { margin-bottom: 16px; }
+
+    /* 文書読み込みセクション */
+    .folder-header {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      margin-bottom: 6px;
+    }
+    .folder-label { font-size: 0.85rem; font-weight: bold; color: #555; }
+    .load-status { font-size: 0.85rem; color: #666; margin: 0; }
+    .load-status.ok  { color: #107c10; }
+    .load-status.err { color: #c00; }
+    .load-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .load-row input[type="text"],
+    .load-row button {
+      height: 38px;
+      box-sizing: border-box;
+    }
+    .load-row input[type="text"] {
+      flex: 1;
+      padding: 0 10px;
+      font-size: 0.95rem;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    .load-row input[type="text"]:disabled {
+      background: #f5f5f5;
+      color: #999;
+    }
+
+    hr { border: none; border-top: 1px solid #e0e0e0; margin: 24px 0; }
+
+    /* 質問セクション */
+    .ask-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 8px;
+    }
+    .ask-row button#ask-btn { margin-top: 0; }
+    .rag-label { font-size: 0.85rem; color: #555; }
+    .rag-toggle {
+      position: relative;
+      width: 48px;
+      height: 26px;
+      border-radius: 13px;
+      border: none;
+      cursor: pointer;
+      padding: 0;
+      margin: 0;
+      flex-shrink: 0;
+      transition: background 0.2s;
+    }
+    .rag-toggle::after {
+      content: '';
+      position: absolute;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #fff;
+      top: 3px;
+      transition: left 0.2s;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+    }
+    .rag-toggle.toggle-on  { background: #107c10; }
+    .rag-toggle.toggle-on::after  { left: 25px; }
+    .rag-toggle.toggle-off { background: #bbb; }
+    .rag-toggle.toggle-off::after { left: 3px; }
+    .rag-toggle:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    textarea {
+      width: 100%;
+      height: 80px;
+      padding: 10px;
+      font-size: 1rem;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      box-sizing: border-box;
+      resize: vertical;
+    }
+
+    button {
+      margin-top: 8px;
+      padding: 8px 24px;
+      font-size: 1rem;
+      background: #0078d4;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:disabled { background: #aaa; cursor: not-allowed; }
+    button.secondary {
+      background: #fff;
+      color: #0078d4;
+      border: 1px solid #0078d4;
+      margin-top: 0;
+    }
+    button.secondary:disabled { background: #fff; color: #aaa; border-color: #aaa; }
+    button.secondary.is-loaded {
+      color: #c00;
+      border-color: #c00;
+    }
+
+    #ask-result { margin-top: 28px; }
+    .answer-box {
+      background: #f0f7ff;
+      border-left: 4px solid #0078d4;
+      padding: 12px 16px;
+      border-radius: 0 4px 4px 0;
+      white-space: pre-wrap;
+      line-height: 1.7;
+    }
+
+    details { margin-top: 16px; }
+    summary { cursor: pointer; color: #555; font-size: 0.9rem; user-select: none; }
+    .chunk-list { margin-top: 8px; }
+    .chunk {
+      background: #fafafa;
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+      padding: 10px 12px;
+      margin-bottom: 8px;
+      font-size: 0.85rem;
+    }
+    .chunk-meta { color: #888; margin-bottom: 4px; }
+    .chunk-text { white-space: pre-wrap; color: #444; }
+
+    .ask-status { color: #888; margin-top: 16px; display: none; }
+    .ask-error { color: #c00; margin-top: 8px; min-height: 1.2em; }
+
+    #chunks-details { margin-top: 12px; }
+    #chunks-details .chunk-meta { color: #888; margin-bottom: 4px; }
+  </style>
+</head>
+<body>
+  <h1>RAGアプリ</h1>
+
+  <!-- 文書読み込み -->
+   <h2>文書読み込み</h2>
+  <div class="load-row">
+    <input type="text" id="folder" value="{{ default_docs_dir }}" placeholder="文書フォルダのパス">
+    <button class="secondary" id="load-reset-btn">読み込む</button>
+  </div>
+  <p class="load-status err" id="load-status" hidden></p>
+
+  <details id="chunks-details">
+    <summary id="chunks-summary">0個の断片（クリックで展開）</summary>
+    <div class="chunk-list" id="chunks-list"></div>
+  </details>
+
+  <!-- 質問 -->
+  <h2>質問</h2>
+  <textarea id="question" placeholder="例: リフレッシュ休暇は何日もらえますか？"></textarea>
+  <div class="ask-row">
+    <button id="ask-btn" disabled>送信</button>
+    <span class="rag-label">RAG</span>
+    <button class="rag-toggle toggle-off" id="rag-toggle-btn" disabled></button>
+  </div>
+
+  <p class="ask-status" id="ask-loading">通信中...</p>
+  <p class="ask-error" id="ask-error"></p>
+
+  <div id="ask-result" hidden>
+    <h2 style="font-size:1rem; margin-bottom:8px;">回答</h2>
+    <div class="answer-box" id="answer"></div>
+    <details>
+      <summary>検索で選ばれた断片（クリックで展開）</summary>
+      <div class="chunk-list" id="context"></div>
+    </details>
+  </div>
+
+  <script>
+    const loadResetBtn = document.getElementById('load-reset-btn');
+    const folderEl = document.getElementById('folder');
+    const loadStatus = document.getElementById('load-status');
+    const ragToggleBtn = document.getElementById('rag-toggle-btn');
+
+    const chunksDetails = document.getElementById('chunks-details');
+    const chunksSummary = document.getElementById('chunks-summary');
+    const chunksListEl = document.getElementById('chunks-list');
+
+    const askBtn = document.getElementById('ask-btn');
+    const questionEl = document.getElementById('question');
+    const askResultEl = document.getElementById('ask-result');
+    const answerEl = document.getElementById('answer');
+    const contextEl = document.getElementById('context');
+    const askLoadingEl = document.getElementById('ask-loading');
+    const askErrorEl = document.getElementById('ask-error');
+
+    let docsLoaded = false;
+
+    async function handleLoadReset() {
+      if (docsLoaded) {
+        await resetStore();
+      } else {
+        await loadDocs();
+      }
+    }
+
+    async function loadDocs() {
+      loadResetBtn.disabled = true;
+      loadStatus.hidden = true;
+
+      try {
+        const res = await fetch('/load', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ folder: folderEl.value.trim() }),
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          loadStatus.className = 'load-status err';
+          loadStatus.textContent = data.error || '読み込みに失敗しました';
+          loadStatus.hidden = false;
+          return;
+        }
+
+        docsLoaded = true;
+        loadResetBtn.textContent = 'リセット';
+        loadResetBtn.classList.add('is-loaded');
+        folderEl.disabled = true;
+        ragToggleBtn.className = 'rag-toggle toggle-on';
+        ragToggleBtn.disabled = false;
+        chunksSummary.textContent = `${data.chunks}個の断片（クリックで展開）`;
+        chunksListEl.innerHTML = '';
+      } catch (e) {
+        loadStatus.className = 'load-status err';
+        loadStatus.textContent = 'サーバーへの接続に失敗しました';
+        loadStatus.hidden = false;
+      } finally {
+        loadResetBtn.disabled = false;
+      }
+    }
+
+    async function resetStore() {
+      loadResetBtn.disabled = true;
+      try {
+        await fetch('/reset', { method: 'POST' });
+        docsLoaded = false;
+        loadStatus.hidden = true;
+        loadResetBtn.textContent = '読み込む';
+        loadResetBtn.classList.remove('is-loaded');
+        folderEl.disabled = false;
+        ragToggleBtn.className = 'rag-toggle toggle-off';
+        ragToggleBtn.disabled = true;
+        chunksSummary.textContent = '0個の断片（クリックで展開）';
+        chunksListEl.innerHTML = '';
+      } finally {
+        loadResetBtn.disabled = false;
+      }
+    }
+
+    async function ask() {
+      const question = questionEl.value.trim();
+      if (!question) return;
+
+      askBtn.disabled = true;
+      askLoadingEl.style.display = 'block';
+      askResultEl.hidden = true;
+      askErrorEl.textContent = '';
+
+      try {
+        const res = await fetch('/ask', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question }),
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          askErrorEl.textContent = data.error || 'エラーが発生しました';
+          return;
+        }
+
+        answerEl.textContent = data.answer;
+        if (data.context.length === 0) {
+          contextEl.innerHTML = '<p style="color:#888;font-size:0.85rem;">RAG なし（LLM の知識のみで回答）</p>';
+        } else {
+          contextEl.innerHTML = data.context.map((c, i) => `
+            <div class="chunk">
+              <div class="chunk-meta">[${i + 1}] 類似度 ${c.score.toFixed(3)} &nbsp;|&nbsp; 出典: ${escapeHtml(c.source)}</div>
+              <div class="chunk-text">${escapeHtml(c.chunk)}</div>
+            </div>
+          `).join('');
+        }
+        askResultEl.hidden = false;
+      } catch (e) {
+        askErrorEl.textContent = 'サーバーへの接続に失敗しました';
+      } finally {
+        askBtn.disabled = false;
+        askLoadingEl.style.display = 'none';
+      }
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    async function toggleRag() {
+      const res = await fetch('/rag-toggle', { method: 'POST' });
+      const { rag_enabled } = await res.json();
+      ragToggleBtn.className = `rag-toggle ${rag_enabled ? 'toggle-on' : 'toggle-off'}`;
+    }
+
+    chunksDetails.addEventListener('toggle', async () => {
+      if (!chunksDetails.open || chunksListEl.children.length > 0) return;
+      const res = await fetch('/chunks');
+      const { chunks } = await res.json();
+      chunksListEl.innerHTML = chunks.map(c => `
+        <div class="chunk">
+          <div class="chunk-meta">[${c.index + 1}] 出典: ${escapeHtml(c.source)}</div>
+          <div class="chunk-text">${escapeHtml(c.text)}</div>
+        </div>
+      `).join('');
+    });
+
+    loadResetBtn.addEventListener('click', handleLoadReset);
+    ragToggleBtn.addEventListener('click', toggleRag);
+    askBtn.addEventListener('click', ask);
+    questionEl.addEventListener('input', () => {
+      askBtn.disabled = !questionEl.value.trim();
+    });
+    questionEl.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) ask();
+    });
+  </script>
+</body>
+</html>
