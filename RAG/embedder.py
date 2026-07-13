@@ -6,9 +6,7 @@ def _require_env(name: str) -> str:
     """環境変数の読み込み"""
     value = os.environ.get(name)
     if not value:
-        raise ValueError(
-            f"{name} が .env に設定されていません。.env.example を参考に記入してください。"
-        )
+        raise ValueError(f"{name}が .envに設定されていません。.env.example を参考に記入してください。")
     return value
 
 
@@ -43,15 +41,20 @@ class AzureEmbedder(Embedder):
     """Azure OpenAI 埋め込みモデル"""
 
     def __init__(self):
-        from openai import AzureOpenAI
+        from openai import OpenAI
 
-        self._client = AzureOpenAI(
-            api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-10-21"),
-            azure_endpoint=_require_env("AZURE_OPENAI_ENDPOINT"),
+        endpoint = _require_env("AZURE_OPENAI_ENDPOINT").rstrip("/")
+        if not endpoint.endswith("/openai/v1"):
+            endpoint += "/openai/v1"
+
+        self._client = OpenAI(
             api_key=_require_env("AZURE_OPENAI_API_KEY"),
+            base_url=endpoint,
         )
         self._model = _require_env("AZURE_OPENAI_EMBED_DEPLOYMENT")
-        print(f"[埋め込み] Azure OpenAI を使用: デプロイ名={self._model}")
+        print("[埋め込み] Azure AI Foundry を使用")
+        print(f"  Endpoint : {endpoint}")
+        print(f"  Deployment : {self._model}")
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         try:
